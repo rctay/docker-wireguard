@@ -163,6 +163,43 @@ mkdir -p /etc/wireguard/clients
 
 WG_CONF="/etc/wireguard/wg0.conf"
 
+update_existing_config() {
+  local changed=0 client_conf
+
+  if grep -q '^# ENDPOINT ' "$WG_CONF"; then
+    if ! grep -qx "# ENDPOINT $server_addr" "$WG_CONF"; then
+      sed -i "s|^# ENDPOINT .*|# ENDPOINT $server_addr|" "$WG_CONF"
+      changed=1
+    fi
+  else
+    sed -i "1a# ENDPOINT $server_addr" "$WG_CONF"
+    changed=1
+  fi
+
+  if grep -q '^ListenPort ' "$WG_CONF"; then
+    if ! grep -qx "ListenPort = $VPN_PORT" "$WG_CONF" \
+      && ! grep -qx "ListenPort $VPN_PORT" "$WG_CONF"; then
+      sed -i "s|^ListenPort .*|ListenPort = $VPN_PORT|" "$WG_CONF"
+      changed=1
+    fi
+  fi
+
+  for client_conf in /etc/wireguard/clients/*.conf; do
+    [ -f "$client_conf" ] || continue
+    if grep -q '^Endpoint = ' "$client_conf"; then
+      if ! grep -qx "Endpoint = $server_addr:$VPN_PORT" "$client_conf"; then
+        sed -i "s|^Endpoint = .*|Endpoint = $server_addr:$VPN_PORT|" "$client_conf"
+        changed=1
+      fi
+    fi
+  done
+
+  if [ "$changed" -eq 1 ]; then
+    echo "Updated existing WireGuard endpoint: $server_addr:$VPN_PORT"
+    echo "Re-export or re-scan client configs so clients use the new endpoint."
+  fi
+}
+
 echo
 echo "WireGuard Docker - https://github.com/hwdsl2/docker-wireguard"
 
@@ -265,6 +302,7 @@ EOF
 else
   echo
   echo "Found existing WireGuard configuration, starting server..."
+  update_existing_config
   echo
 fi
 
